@@ -34,7 +34,7 @@ def call_ai_api(prompt_text):
         st.error(f"❌ API Error: {e}")
         return None
 
-# --- 4. Sidebar ---
+# --- 4. Sidebar: Design ---
 with st.sidebar:
     st.markdown('<a href="/" style="color:var(--primary-color); font-weight:bold; font-size:1.2em; text-decoration:none;">🏠 Dashboard</a>', unsafe_allow_html=True)
     st.markdown("---")
@@ -48,7 +48,6 @@ with st.sidebar:
 
 # --- 5. Main UI Logic ---
 st.title("Data Quality Agent")
-
 uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
 if uploaded_file:
@@ -56,7 +55,6 @@ if uploaded_file:
         st.session_state.raw_df = pd.read_csv(uploaded_file)
     
     tab1, tab2 = st.tabs(["📋 Inspector", "📊 Diagnostics & Remediation"])
-    
     with tab1:
         st.dataframe(st.session_state.raw_df.head(10))
     
@@ -86,13 +84,16 @@ if uploaded_file:
                 for anomaly in st.session_state.audit_report.get("anomalies", []):
                     col = anomaly.get('column')
                     strat = anomaly.get('remediation_strategy', '').lower()
-                    if "fill" in strat:
-                        st.session_state.raw_df[col] = st.session_state.raw_df[col].fillna(st.session_state.raw_df[col].mean() if pd.api.types.is_numeric_dtype(st.session_state.raw_df[col]) else st.session_state.raw_df[col].mode()[0])
+                    # Enhanced Remediation Logic
+                    if "positive" in strat or "abs" in strat:
+                        st.session_state.raw_df[col] = st.session_state.raw_df[col].abs()
+                    elif "fill" in strat:
+                        val = st.session_state.raw_df[col].mean() if pd.api.types.is_numeric_dtype(st.session_state.raw_df[col]) else st.session_state.raw_df[col].mode()[0]
+                        st.session_state.raw_df[col] = st.session_state.raw_df[col].fillna(val)
                     elif "remove" in strat:
                         st.session_state.raw_df = st.session_state.raw_df.dropna(subset=[col])
                 
-                st.success("✅ Fixes Applied! Preview of cleaned data:")
+                st.success("✅ Fixes applied!")
                 st.dataframe(st.session_state.raw_df.head(10))
-                
                 csv = st.session_state.raw_df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleaned_data.csv", mime="text/csv")
