@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import json
-import requests 
+import requests
 import os                      
 import yaml                     
 from dotenv import load_dotenv  
@@ -21,8 +21,6 @@ st.set_page_config(
 )
 
 # --- SECURE API KEY LOADING ---
-# First attempt to read from Streamlit Secrets (for Cloud Deployment)
-# Then fall back to local environment variables (for Local Execution)
 def get_api_key():
     try:
         return st.secrets["GEMINI_API_KEY"]
@@ -44,8 +42,15 @@ def call_gemini_api(prompt_text):
         st.error("❌ Valid GEMINI_API_KEY is missing! Please set it in Streamlit Secrets or your local .env file.")
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={RAW_API_KEY}"
-    headers = {"Content-Type": "application/json"}
+    # Removed ?key= parameter to fix 401 error with AQ. keys
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    
+    # Send the API key securely in the headers
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": RAW_API_KEY
+    }
+    
     payload = {
         "contents": [{"parts": [{"text": prompt_text}]}],
         "generationConfig": {"responseMimeType": "application/json"}
