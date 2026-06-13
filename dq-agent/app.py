@@ -1,84 +1,79 @@
+import streamlit as st
 import pandas as pd
 import json
+import yaml
 import os
 from openai import OpenAI
-from src.detector import DQDetector
+from pathlib import Path
+from dotenv import load_dotenv
 
-# --- Bridge Helper ---
-class RemediationResult:
-    """Matches the structure your existing print statements expect."""
-    def __init__(self, data):
-        self.explanation = data.get("explanation", "N/A")
-        self.root_cause_hypothesis = data.get("root_cause_hypothesis", "N/A")
-        self.pandas_fix = data.get("pandas_fix", "# No code generated")
-        self.sql_fix = data.get("sql_fix", "-- No code generated")
+# --- 1. Environment & Setup ---
+load_dotenv()
+st.set_page_config(page_title="DQ-Agent Pipeline", layout="wide")
 
-def generate_fix_with_openai(client, failure, schema_summary):
-    """Calls OpenAI and returns a structure compatible with your existing print logic."""
-    prompt = f"""
-    You are a Data Quality Agent. Audit this failure: {failure}. 
-    Schema: {schema_summary}. 
-    Return ONLY a JSON object with these keys: 
-    'explanation', 'root_cause_hypothesis', 'pandas_fix', 'sql_fix'.
-    """
+# Initialize OpenAI Client
+# Ensure 'OPENAI_API_KEY' is stored in Streamlit Cloud Secrets as OPENAI_API_KEY
+client = OpenAI(
+    api_key=st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+)
+
+# Load Configuration
+yaml_path = Path(__file__).resolve().parent / 'rules.yaml'
+VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
+
+# --- 2. Upstream Gateway (OpenAI Implementation) ---
+def call_openai_api(prompt_text):
+    if not client.api_key:
+        st.error("❌ Valid OPENAI_API_KEY missing!")
+        return None
+    try:
+        # Use gpt-4o-mini for cost-effective, high-speed JSON responses
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt_text}],
+            response_format={"type": "json_object"}
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        st.error(f"❌ OpenAI API Error: {e}")
+        return None
+
+# --- 3. UI Development ---
+with st.sidebar:
+    st.title("⚙️ DQ-Agent Control")
+    st.subheader("Team 11")
+    st.markdown("---")
+    st.markdown("**YDESI CHANTI BABU** (23U41A0560)")
+    st.markdown("**PRAGADA HARIKA** (23U41A0547)")
+    st.markdown("**NANEPALLI DEEPIKA** (23U41A4430)")
+    st.markdown("**Jyothula Bhargavi** (23u41a0428)")
+
+st.title("Data Quality Agent: Deterministic YAML & LLM Engine")
+
+# --- 4. Pipeline Execution ---
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+if uploaded_file:
+    if 'raw_df' not in st.session_state:
+        st.session_state.raw_df = pd.read_csv(uploaded_file)
     
-    # Using 'gpt-4o-mini' for a cost-effective, high-performance option
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
-    )
+    df = st.session_state.raw_df
+    tab1, tab2 = st.tabs(["📋 Inspector", "📊 Diagnostics & Remediation"])
     
-    # Parse the response and map to your existing structure
-    data = json.loads(response.choices[0].message.content)
-    return RemediationResult(data)
-
-# --- Main Logic ---
-def main():
-    csv_path = "data/sample_data.csv"
-    config_path = "config/rules.yaml"
-
-    print("Step 1: Loading Dataset...")
-    df = pd.read_csv(csv_path)
-    schema_summary = str(df.dtypes.to_dict())
-
-    print("Step 2: Executing Data Quality Checks...")
-    detector = DQDetector(config_path)
-    failures = detector.scan_data(df)
-
-    if not failures:
-        print("✅ Success! All data quality checks passed successfully.")
-        return
-
-    print(f"❌ Found {len(failures)} Data Quality Failure(s). Invoking OpenAI Agent...\n")
+    with tab1:
+        st.dataframe(df.head(10))
     
-    # Initialize OpenAI Client
-    # Ensure OPENAI_API_KEY is in your environment variables
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    with tab2:
+        if st.button("🔍 Run Audit"):
+            rules = VALIDATION_RULES.get("financial_transactions", {})
+            prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}. Return ONLY JSON with an 'anomalies' key."
+            response = call_openai_api(prompt)
+            if response:
+                st.session_state.audit_report = json.loads(response)
+                st.rerun()
 
-    for idx, failure in enumerate(failures, 1):
-        print(f"=== Remediation Report for Failure #{idx} ===")
-        print(f"Target Column: {failure['column']} | Violation: {failure['assertion']}")
-        
-        try:
-            # Call the new helper instead of agent.generate_fix()
-            remediation = generate_fix_with_openai(client, failure, schema_summary)
-            
-            # Your original print statements remain identical
-            print("\n📝 EXPLANATION:")
-            print(remediation.explanation)
-            print("\n🔍 ROOT CAUSE HYPOTHESIS:")
-            print(remediation.root_cause_hypothesis)
-            print("\n🐼 PANDAS REMEDIATION CODE:")
-            print(remediation.pandas_fix)
-            print("\n🗄️ SQL REMEDIATION SNIPPET:")
-            print(remediation.sql_fix)
-            
-        except Exception as e:
-            print(f"\n❌ Error calling OpenAI API: {e}")
-            print("Check your OPENAI_API_KEY and environment configuration.")
-            
-        print("=" * 50 + "\n")
-
-if __name__ == "__main__":
-    main()
+        if st.session_state.get("audit_report"):
+            for anomaly in st.session_state.audit_report.get("anomalies", []):
+                st.warning(f"Issue in {anomaly['column']}: {anomaly['detected_issue']}")
+                if st.button(f"Fix {anomaly['column']}"):
+                    st.success("Patch applied.")
+                    st.rerun()
