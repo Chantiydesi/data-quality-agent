@@ -13,11 +13,26 @@ st.set_page_config(page_title="DQ-Agent Dashboard", layout="wide")
 yaml_path = Path(__file__).resolve().parent / 'rules.yaml'
 VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
 
-# --- 3. Gateway: API Connection ---
+# --- 3. Remediation Engine ---
+def apply_fix(df, column, strategy):
+    try:
+        # Transformation logic based on agent recommendations
+        if "fill" in strategy.lower():
+            if df[column].dtype in ['float64', 'int64']:
+                df[column] = df[column].fillna(df[column].mean())
+            else:
+                df[column] = df[column].fillna(df[column].mode()[0])
+        elif "remove" in strategy.lower():
+            df = df.dropna(subset=[column])
+        return df, True
+    except Exception:
+        return df, False
+
+# --- 4. Gateway: API Connection ---
 def call_ai_api(prompt_text):
     api_key = st.secrets.get("OPENROUTER_API_KEY")
     if not api_key:
-        st.error("❌ API Key missing in Streamlit Secrets.")
+        st.error("❌ API Key missing! Check your Streamlit Secrets.")
         return None
         
     client = OpenAI(
@@ -37,19 +52,21 @@ def call_ai_api(prompt_text):
         st.error(f"❌ API Error: {e}")
         return None
 
-# --- 4. Sidebar: Design & Navigation ---
+# --- 5. Sidebar: Design & Team Info ---
 with st.sidebar:
     st.markdown("""
         <style>
-        [data-testid="stSidebar"] { background-color: #0e1117; padding: 20px; }
-        .nav-link { color: #3498db; font-weight: bold; text-decoration: none; font-size: 1.2em; }
-        .team-card { background-color: #1c1c1c; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #3498db; }
-        .team-name { color: white; font-weight: bold; }
-        .team-roll { color: #888; font-size: 0.9em; }
+        .nav-link { color: var(--primary-color); font-weight: bold; text-decoration: none; font-size: 1.2em; }
+        .team-card { 
+            background-color: var(--secondary-background-color); 
+            padding: 15px; border-radius: 10px; margin-bottom: 10px; 
+            border-left: 4px solid var(--primary-color); 
+        }
+        .team-name { color: var(--text-color); font-weight: bold; }
+        .team-roll { color: var(--text-color); opacity: 0.7; font-size: 0.9em; }
         </style>
     """, unsafe_allow_html=True)
 
-    # Simplified Sidebar
     st.markdown('<a href="/" class="nav-link">🏠 Dashboard</a>', unsafe_allow_html=True)
     st.markdown("---")
     st.subheader("👥 Team 11")
@@ -62,7 +79,7 @@ with st.sidebar:
     render_card("NANEPALLI DEEPIKA", "23U41A4430")
     render_card("Jyothula Bhargavi", "23U41A0428")
 
-# --- 5. Main UI Logic ---
+# --- 6. Main UI Logic ---
 st.title("Data Quality Agent")
 st.caption("Agent · Team 11")
 
@@ -81,7 +98,6 @@ if uploaded_file:
     with tab2:
         if st.button("🔍 Run Diagnostic Audit"):
             rules = VALIDATION_RULES.get("financial_transactions", {})
-            # Updated prompt to ensure actionable remediation
             prompt = f"""
             Audit this data: {df.head(10).to_json()}. 
             Rules: {rules}. 
@@ -97,7 +113,18 @@ if uploaded_file:
 
         if st.session_state.get("audit_report"):
             for anomaly in st.session_state.audit_report.get("anomalies", []):
-                with st.expander(f"⚠️ Issue in {anomaly.get('column')}", expanded=True):
+                col_name = anomaly.get('column')
+                with st.expander(f"⚠️ Issue in {col_name}", expanded=True):
                     st.markdown(f"**Issue:** {anomaly.get('detected_issue')}")
-                    st.markdown(f"**Why this is an issue:** {anomaly.get('explanation')}")
-                    st.markdown(f"**How to fix it:** {anomaly.get('remediation_strategy')}")
+                    st.markdown(f"**Why:** {anomaly.get('explanation')}")
+                    st.markdown(f"**Fix:** {anomaly.get('remediation_strategy')}")
+                    
+                    if st.button(f"🚀 Apply Fix to {col_name}", key=f"fix_{col_name}"):
+                        st.session_state.raw_df, success = apply_fix(
+                            st.session_state.raw_df, col_name, anomaly.get('remediation_strategy')
+                        )
+                        if success:
+                            st.success(f"✅ Data in {col_name} corrected!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to apply fix.")
