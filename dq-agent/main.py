@@ -1,49 +1,119 @@
-﻿import pandas as pd
-from src.detector import DQDetector
-from src.agent import DQAgent
+import streamlit as st
+import pandas as pd
+import numpy as np
+import io
+import json
+import requests
+import os                      
+import yaml                     
+from dotenv import load_dotenv  
+from pathlib import Path
 
-def main():
-    csv_path = "data/sample_data.csv"
-    config_path = "config/rules.yaml"
+# ============================================================
+# 1. Environment & Project Initialization (Blueprint 1.1-1.4)
+# ============================================================
+current_dir = Path(__file__).resolve().parent if '__file__' in locals() else Path.cwd()
+env_path = current_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 
-    print("Step 1: Loading Dataset...")
-    df = pd.read_csv(csv_path)
-    schema_summary = str(df.dtypes.to_dict())
+st.set_page_config(
+    page_title="Data Quality Agent with Auto-Fix Suggestions", 
+    page_icon="🔮", 
+    layout="wide"
+)
 
-    print("Step 2: Executing Data Quality Checks...")
-    detector = DQDetector(config_path)
-    failures = detector.scan_data(df)
+# Secure API Key Loading (Blueprint 4.1 & 4.2)
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        return os.getenv("GEMINI_API_KEY")
 
-    if not failures:
-        print("✅ Success! All data quality checks passed successfully.")
-        return
+RAW_API_KEY = get_api_key()
 
-    print(f"❌ Found {len(failures)} Data Quality Failure(s). Invoking Gemini Agent...\n")
-    agent = DQAgent()
+# ============================================================
+# 2. Global System Configuration (Blueprint 2.1-2.2)
+# ============================================================
+yaml_path = current_dir / 'rules.yaml'
+if yaml_path.exists():
+    with open(yaml_path, 'r') as file:
+        VALIDATION_RULES = yaml.safe_load(file)
+else:
+    VALIDATION_RULES = {}
 
-    for idx, failure in enumerate(failures, 1):
-        print(f"=== Remediation Report for Failure #{idx} ===")
-        print(f"Target Column: {failure['column']} | Violation: {failure['assertion']}")
-        
-        try:
-            remediation = agent.generate_fix(failure, schema_summary)
+# Upstream HTTP JSON Payload Architecture (Blueprint 4.3)
+def call_gemini_api(prompt_text):
+    if not RAW_API_KEY or RAW_API_KEY.strip() == "":
+        st.error("❌ Valid GEMINI_API_KEY is missing!")
+        return None
+
+    # URL without ?key= parameter to avoid 401 errors
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": RAW_API_KEY # Secure Header Auth
+    }
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt_text}]}],
+        "generationConfig": {"responseMimeType": "application/json"}
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            st.error(f"❌ API Gate Error ({response.status_code}): {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"❌ Connection Failed: {e}")
+        return None
+
+# ============================================================
+# 3. UI Architecture Development (Blueprint 3.1-3.6)
+# ============================================================
+with st.sidebar:
+    st.markdown("## ⚙️ QA Agent Control")
+    use_llm = st.toggle("Gemini Pro LLM Engine", value=True)
+    st.markdown("---")
+    st.markdown("### Team 11")
+    # ... [Keep your team card CSS/HTML here] ...
+
+st.title("Data Quality Agent: Deterministic YAML & LLM Engine")
+
+# ============================================================
+# 5. Pipeline Execution (Blueprint 5.1-5.6)
+# ============================================================
+uploaded_file = st.file_uploader("Upload your target CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    if 'raw_df' not in st.session_state:
+        st.session_state.raw_df = pd.read_csv(uploaded_file)
+    
+    df = st.session_state.raw_df
+    tab1, tab2 = st.tabs(["📋 Inspector", "📊 Diagnostics & Remediation"])
+    
+    with tab1:
+        st.dataframe(df.head(10), use_container_width=True)
+    
+    with tab2:
+        if st.button("🔍 Run Diagnostic Audit"):
+            # Contextual Prompt Assembly (YAML Schema + Data Samples)
+            rules = VALIDATION_RULES.get("financial_transactions", {})
+            audit_prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}."
             
-            print("\n📝 EXPLANATION:")
-            print(remediation.explanation)
-            
-            print("\n🔍 ROOT CAUSE HYPOTHESIS:")
-            print(remediation.root_cause_hypothesis)
-            
-            print("\n🐼 PANDAS REMEDIATION CODE:")
-            print(remediation.pandas_fix)
-            
-            print("\n🗄️ SQL REMEDIATION SNIPPET:")
-            print(remediation.sql_fix)
-        except Exception as e:
-            print(f"\n❌ Error calling Gemini API: {e}")
-            print("Make sure your GEMINI_API_KEY is set correctly in your .env file.")
-            
-        print("=" * 50 + "\n")
+            response = call_gemini_api(audit_prompt)
+            st.session_state.audit_report = json.loads(response)
+            st.rerun()
 
-if __name__ == "__main__":
-    main()
+        # 6. Real-Time Auto-Fix Execution Sandboxing (Blueprint 6.1-6.3)
+        if st.session_state.get("audit_report"):
+            # ... [Insert your auto-fix remediation logic here] ...
+            if st.button("🚀 Execute Code Patch Repair Pipeline"):
+                # Sandboxed exec() logic
+                pass
+
+# 7. Downstream Output Delivery (Blueprint 7.1-7.3)
+# ... [Keep your CSV buffer and download button logic here] ...
