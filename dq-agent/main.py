@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import io
 import json
 import os
 import yaml
-import google.generativeai as genai # Official SDK
+import google.generativeai as genai
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -16,28 +14,27 @@ load_dotenv(dotenv_path=env_path)
 
 st.set_page_config(page_title="DQ-Agent Pipeline", layout="wide")
 
+# Secure API Key Loading
 def get_api_key():
     return st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 RAW_API_KEY = get_api_key()
 
-# Configure SDK
+# Configure SDK - This handles the AQ. key handshake automatically
 if RAW_API_KEY:
     genai.configure(api_key=RAW_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- 2. Load Configuration ---
 yaml_path = current_dir / 'rules.yaml'
 VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
 
-# --- 4. Upstream Gateway (Using SDK) ---
+# --- 3. Upstream Gateway (Using Official SDK) ---
 def call_gemini_api(prompt_text):
     if not RAW_API_KEY:
         st.error("❌ Valid GEMINI_API_KEY missing!")
         return None
-    
     try:
-        # Use the official SDK model
-        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt_text,
             generation_config={"response_mime_type": "application/json"}
@@ -47,7 +44,7 @@ def call_gemini_api(prompt_text):
         st.error(f"❌ SDK Authentication Error: {e}")
         return None
 
-# --- 3. UI Development ---
+# --- 4. UI Development ---
 with st.sidebar:
     st.title("⚙️ DQ-Agent Control")
     use_llm = st.toggle("Activate AI Engine", value=True)
@@ -75,7 +72,7 @@ if uploaded_file:
     with tab2:
         if st.button("🔍 Run Audit"):
             rules = VALIDATION_RULES.get("financial_transactions", {})
-            prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}. Return JSON only."
+            prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}. Return ONLY JSON."
             response = call_gemini_api(prompt)
             if response:
                 st.session_state.audit_report = json.loads(response)
@@ -84,11 +81,11 @@ if uploaded_file:
         if st.session_state.get("audit_report"):
             anomalies = st.session_state.audit_report.get("anomalies", [])
             for anomaly in anomalies:
-                st.warning(f"Issue: {anomaly['detected_issue']}")
+                st.warning(f"Issue in {anomaly['column']}: {anomaly['detected_issue']}")
                 if st.button(f"Fix {anomaly['column']}"):
                     st.success("Patch applied.")
                     st.rerun()
 
-# 7. Downstream Delivery
+# 6. Downstream Delivery
 if st.session_state.get("healed_df") is not None:
     st.download_button("📥 Download Cleaned CSV", data=st.session_state.healed_df.to_csv(), file_name="cleaned.csv")
