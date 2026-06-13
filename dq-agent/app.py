@@ -1,83 +1,84 @@
-import streamlit as st
 import pandas as pd
 import json
-import yaml
 import os
 from openai import OpenAI
-from pathlib import Path
+from src.detector import DQDetector
 
-# --- 1. Page Configuration ---
-st.set_page_config(page_title="DQ-Agent Pipeline", layout="wide")
+# --- Bridge Helper ---
+class RemediationResult:
+    """Matches the structure your existing print statements expect."""
+    def __init__(self, data):
+        self.explanation = data.get("explanation", "N/A")
+        self.root_cause_hypothesis = data.get("root_cause_hypothesis", "N/A")
+        self.pandas_fix = data.get("pandas_fix", "# No code generated")
+        self.sql_fix = data.get("sql_fix", "-- No code generated")
 
-# --- 2. Secure API Client Loader ---
-def get_client():
-    # This fetches the key securely from the Streamlit Cloud Secrets dashboard
-    api_key = st.secrets.get("OPENROUTER_API_KEY")
-    if not api_key:
-        return None
-    return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-        default_headers={
-            "HTTP-Referer": "https://streamlit.io/", # Required by OpenRouter
-            "X-Title": "Data Quality Agent"         # Optional for leaderboards
-        }
+def generate_fix_with_openai(client, failure, schema_summary):
+    """Calls OpenAI and returns a structure compatible with your existing print logic."""
+    prompt = f"""
+    You are a Data Quality Agent. Audit this failure: {failure}. 
+    Schema: {schema_summary}. 
+    Return ONLY a JSON object with these keys: 
+    'explanation', 'root_cause_hypothesis', 'pandas_fix', 'sql_fix'.
+    """
+    
+    # Using 'gpt-4o-mini' for a cost-effective, high-performance option
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"}
     )
-
-# --- 3. Rules Engine Loader ---
-yaml_path = Path(__file__).resolve().parent / 'rules.yaml'
-VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
-
-# --- 4. API Gateway ---
-def call_ai_api(prompt_text):
-    client = get_client()
-    if not client:
-        st.error("❌ API Key not found! Please check your Streamlit Secrets configuration.")
-        return None
-    try:
-        response = client.chat.completions.create(
-            # Using the Nex AGI free model as requested
-            model="nex-agi/nex-n2-pro:free", 
-            messages=[{"role": "user", "content": prompt_text}],
-            extra_body={"response_format": {"type": "json_object"}}
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        st.error(f"❌ API Connection Error: {e}")
-        return None
-
-# --- 5. User Interface ---
-st.title("Data Quality Agent: Deterministic YAML & LLM Engine")
-st.subheader("Team 11")
-
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-
-if uploaded_file:
-    # Initialize session state for dataframe
-    if 'raw_df' not in st.session_state:
-        st.session_state.raw_df = pd.read_csv(uploaded_file)
     
-    df = st.session_state.raw_df
+    # Parse the response and map to your existing structure
+    data = json.loads(response.choices[0].message.content)
+    return RemediationResult(data)
+
+# --- Main Logic ---
+def main():
+    csv_path = "data/sample_data.csv"
+    config_path = "config/rules.yaml"
+
+    print("Step 1: Loading Dataset...")
+    df = pd.read_csv(csv_path)
+    schema_summary = str(df.dtypes.to_dict())
+
+    print("Step 2: Executing Data Quality Checks...")
+    detector = DQDetector(config_path)
+    failures = detector.scan_data(df)
+
+    if not failures:
+        print("✅ Success! All data quality checks passed successfully.")
+        return
+
+    print(f"❌ Found {len(failures)} Data Quality Failure(s). Invoking OpenAI Agent...\n")
     
-    tab1, tab2 = st.tabs(["📋 Data Preview", "📊 Diagnostic Audit"])
-    
-    with tab1:
-        st.dataframe(df.head(10))
-    
-    with tab2:
-        if st.button("🔍 Run Diagnostic Audit"):
-            rules = VALIDATION_RULES.get("financial_transactions", {})
-            prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}. Return result in JSON format with an 'anomalies' list."
+    # Initialize OpenAI Client
+    # Ensure OPENAI_API_KEY is in your environment variables
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    for idx, failure in enumerate(failures, 1):
+        print(f"=== Remediation Report for Failure #{idx} ===")
+        print(f"Target Column: {failure['column']} | Violation: {failure['assertion']}")
+        
+        try:
+            # Call the new helper instead of agent.generate_fix()
+            remediation = generate_fix_with_openai(client, failure, schema_summary)
             
-            with st.spinner("Agent is analyzing data..."):
-                response = call_ai_api(prompt)
-                if response:
-                    st.session_state.audit_report = json.loads(response)
-                    st.rerun()
+            # Your original print statements remain identical
+            print("\n📝 EXPLANATION:")
+            print(remediation.explanation)
+            print("\n🔍 ROOT CAUSE HYPOTHESIS:")
+            print(remediation.root_cause_hypothesis)
+            print("\n🐼 PANDAS REMEDIATION CODE:")
+            print(remediation.pandas_fix)
+            print("\n🗄️ SQL REMEDIATION SNIPPET:")
+            print(remediation.sql_fix)
+            
+        except Exception as e:
+            print(f"\n❌ Error calling OpenAI API: {e}")
+            print("Check your OPENAI_API_KEY and environment configuration.")
+            
+        print("=" * 50 + "\n")
 
-        # Display results if available
-        if st.session_state.get("audit_report"):
-            st.write("### Audit Results")
-            anomalies = st.session_state.audit_report.get("anomalies", [])
-            for anomaly in anomalies:
-                st.warning(f"Issue in **{anomaly.get('column')}**: {anomaly.get('detected_issue')}")
+if __name__ == "__main__":
+    main()
