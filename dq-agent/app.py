@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import io
@@ -20,7 +20,16 @@ st.set_page_config(
     layout="wide"
 )
 
-RAW_API_KEY = os.getenv("GEMINI_API_KEY")
+# --- SECURE API KEY LOADING ---
+# First attempt to read from Streamlit Secrets (for Cloud Deployment)
+# Then fall back to local environment variables (for Local Execution)
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        return os.getenv("GEMINI_API_KEY")
+
+RAW_API_KEY = get_api_key()
 
 # --- LOAD THE YAML CONFIGURATION ---
 yaml_path = current_dir / 'rules.yaml'
@@ -32,7 +41,7 @@ else:
 
 def call_gemini_api(prompt_text):
     if not RAW_API_KEY or RAW_API_KEY.strip() == "":
-        st.error("❌ Valid GEMINI_API_KEY is missing from your .env file!")
+        st.error("❌ Valid GEMINI_API_KEY is missing! Please set it in Streamlit Secrets or your local .env file.")
         return None
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={RAW_API_KEY}"
