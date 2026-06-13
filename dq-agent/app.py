@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import json
 import yaml
-import os
 from openai import OpenAI
 from pathlib import Path
 
@@ -13,34 +12,17 @@ st.set_page_config(page_title="DQ-Agent Dashboard", layout="wide")
 yaml_path = Path(__file__).resolve().parent / 'rules.yaml'
 VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
 
-# --- 3. Remediation Engine ---
-def apply_fix(df, column, strategy):
-    try:
-        # Transformation logic based on agent recommendations
-        if "fill" in strategy.lower():
-            if df[column].dtype in ['float64', 'int64']:
-                df[column] = df[column].fillna(df[column].mean())
-            else:
-                df[column] = df[column].fillna(df[column].mode()[0])
-        elif "remove" in strategy.lower():
-            df = df.dropna(subset=[column])
-        return df, True
-    except Exception:
-        return df, False
-
-# --- 4. Gateway: API Connection ---
+# --- 3. Gateway: API Connection ---
 def call_ai_api(prompt_text):
     api_key = st.secrets.get("OPENROUTER_API_KEY")
     if not api_key:
-        st.error("❌ API Key missing! Check your Streamlit Secrets.")
+        st.error("❌ API Key missing! Check Streamlit Secrets.")
         return None
-        
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
         default_headers={"HTTP-Referer": "https://streamlit.io/"}
     )
-    
     try:
         response = client.chat.completions.create(
             model="nex-agi/nex-n2-pro:free", 
@@ -52,7 +34,7 @@ def call_ai_api(prompt_text):
         st.error(f"❌ API Error: {e}")
         return None
 
-# --- 5. Sidebar: Design & Team Info ---
+# --- 4. Sidebar: Design & Team Info ---
 with st.sidebar:
     st.markdown("""
         <style>
@@ -79,7 +61,7 @@ with st.sidebar:
     render_card("NANEPALLI DEEPIKA", "23U41A4430")
     render_card("Jyothula Bhargavi", "23U41A0428")
 
-# --- 6. Main UI Logic ---
+# --- 5. Main UI Logic ---
 st.title("Data Quality Agent")
 st.caption("Agent · Team 11")
 
@@ -101,10 +83,9 @@ if uploaded_file:
             prompt = f"""
             Audit this data: {df.head(10).to_json()}. 
             Rules: {rules}. 
-            Return JSON with an 'anomalies' list. 
-            Each anomaly must have: 'column', 'detected_issue', 'explanation', and 'remediation_strategy'.
+            Return JSON with 'anomalies' list. 
+            Each anomaly must have: 'column', 'issue', and 'strategy'.
             """
-            
             with st.spinner("Analyzing data quality..."):
                 response = call_ai_api(prompt)
                 if response:
@@ -112,19 +93,19 @@ if uploaded_file:
                     st.rerun()
 
         if st.session_state.get("audit_report"):
+            st.write("### Detected Anomalies")
             for anomaly in st.session_state.audit_report.get("anomalies", []):
-                col_name = anomaly.get('column')
-                with st.expander(f"⚠️ Issue in {col_name}", expanded=True):
-                    st.markdown(f"**Issue:** {anomaly.get('detected_issue')}")
-                    st.markdown(f"**Why:** {anomaly.get('explanation')}")
-                    st.markdown(f"**Fix:** {anomaly.get('remediation_strategy')}")
-                    
-                    if st.button(f"🚀 Apply Fix to {col_name}", key=f"fix_{col_name}"):
-                        st.session_state.raw_df, success = apply_fix(
-                            st.session_state.raw_df, col_name, anomaly.get('remediation_strategy')
-                        )
-                        if success:
-                            st.success(f"✅ Data in {col_name} corrected!")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to apply fix.")
+                st.info(f"**{anomaly.get('column')}**: {anomaly.get('issue')} | Strategy: {anomaly.get('strategy')}")
+            
+            if st.button("🚀 Apply All Fixes & Download Corrected CSV"):
+                for anomaly in st.session_state.audit_report.get("anomalies", []):
+                    col = anomaly.get('column')
+                    strategy = anomaly.get('strategy', '').lower()
+                    if "fill" in strategy:
+                        st.session_state.raw_df[col] = st.session_state.raw_df[col].fillna(st.session_state.raw_df[col].mean() if pd.api.types.is_numeric_dtype(st.session_state.raw_df[col]) else st.session_state.raw_df[col].mode()[0])
+                    elif "remove" in strategy:
+                        st.session_state.raw_df = st.session_state.raw_df.dropna(subset=[col])
+                
+                st.success("✅ All fixes applied!")
+                csv = st.session_state.raw_df.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleaned_data.csv", mime="text/csv")
