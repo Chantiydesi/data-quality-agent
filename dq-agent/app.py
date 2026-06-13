@@ -1,25 +1,48 @@
 import streamlit as st
 import pandas as pd
 import json
-import yaml
 import os
 from openai import OpenAI
 from pathlib import Path
 
 # --- 1. Page Configuration ---
-st.set_page_config(page_title="DQ-Agent Pipeline", layout="wide")
+st.set_page_config(page_title="Data Quality Agent", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. Configuration & Rules ---
-yaml_path = Path(__file__).resolve().parent / 'rules.yaml'
-VALIDATION_RULES = yaml.safe_load(open(yaml_path)) if yaml_path.exists() else {}
-
-# --- 3. Gateway: API Connection ---
-def call_ai_api(prompt_text):
-    # Retrieve key securely from Streamlit Secrets
-    api_key = st.secrets.get("OPENROUTER_API_KEY")
+# --- 2. Sidebar Navigation & Team Info ---
+with st.sidebar:
+    # Navigation
+    st.title("Dashboard")
+    menu = ["Dashboard", "Generate", "Settings"]
+    choice = st.radio("", menu)
     
+    st.markdown("---")
+    
+    # Team Info Section (styled as cards)
+    st.subheader("👥 Team 14")
+    
+    # Function to create team cards
+    def team_card(name, roll):
+        st.markdown(f"""
+        <div style="background-color: #1e1e2e; padding: 10px; border-radius: 10px; border-left: 5px solid #3498db; margin-bottom: 10px;">
+            <div style="font-weight: bold; color: white;">{name}</div>
+            <div style="font-size: 0.8em; color: #b3b3b3;">Roll: {roll}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    team_card("Padala Kuladeep Satya Kishore", "23U41A0541 · CSE")
+    team_card("Pentakota Charishma", "23U41A0544 · CSE")
+    team_card("Madisa Thanu Sri", "24U45A0419 · ECE")
+    team_card("Malla Hemanjali", "23U41A4236 · CSM")
+
+# --- 3. Main Content Area ---
+st.title("Mock Data Generator")
+st.subheader("Agent · Team 14 · DE-15")
+
+# Integration of your API Gateway logic
+def call_ai_api(prompt_text):
+    api_key = st.secrets.get("OPENROUTER_API_KEY")
     if not api_key:
-        st.error("❌ API Key not found! Check Streamlit Secrets.")
+        st.error("❌ API Key missing!")
         return None
         
     client = OpenAI(
@@ -36,49 +59,12 @@ def call_ai_api(prompt_text):
         )
         return response.choices[0].message.content
     except Exception as e:
-        st.error(f"❌ API Connection Error: {e}")
+        st.error(f"❌ API Error: {e}")
         return None
 
-# --- 4. Sidebar (Team Info) ---
-with st.sidebar:
-    st.title("⚙️ DQ-Agent Control")
-    st.subheader("Team 11")
-    st.markdown("---")
-    st.markdown("**YDESI CHANTI BABU** (23U41A0560)")
-    st.markdown("**PRAGADA HARIKA** (23U41A0547)")
-    st.markdown("**NANEPALLI DEEPIKA** (23U41A4430)")
-    st.markdown("**Jyothula Bhargavi** (23u41a0428)")
-
-# --- 5. Main UI ---
-st.title("Data Quality Agent: Deterministic YAML & LLM Engine")
-
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-
-if uploaded_file:
-    if 'raw_df' not in st.session_state:
-        st.session_state.raw_df = pd.read_csv(uploaded_file)
-    
-    df = st.session_state.raw_df
-    tab1, tab2 = st.tabs(["📋 Inspector", "📊 Diagnostics & Remediation"])
-    
-    with tab1:
-        st.dataframe(df.head(10))
-    
-    with tab2:
-        if st.button("🔍 Run Diagnostic Audit"):
-            rules = VALIDATION_RULES.get("financial_transactions", {})
-            prompt = f"Audit this data: {df.head(10).to_json()}. Rules: {rules}. Return ONLY JSON with an 'anomalies' key."
-            
-            with st.spinner("Agent is analyzing..."):
-                response = call_ai_api(prompt)
-                if response:
-                    try:
-                        st.session_state.audit_report = json.loads(response)
-                        st.rerun()
-                    except json.JSONDecodeError:
-                        st.error("❌ Failed to parse JSON response.")
-
-        if st.session_state.get("audit_report"):
-            st.write("### Audit Results")
-            for anomaly in st.session_state.audit_report.get("anomalies", []):
-                st.warning(f"Issue in **{anomaly.get('column')}**: {anomaly.get('detected_issue')}")
+# Logic for Generate tab
+if choice == "Generate":
+    if st.button("Generate Mock Data"):
+        result = call_ai_api("Generate a sample JSON for a financial transaction.")
+        if result:
+            st.json(result)
