@@ -42,10 +42,10 @@ def call_gemini_api(prompt_text):
         st.error("❌ Valid GEMINI_API_KEY is missing! Please set it in Streamlit Secrets or your local .env file.")
         return None
 
-    # Removed ?key= parameter to fix 401 error with AQ. keys
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    # URL without the ?key= parameter
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
     
-    # Send the API key securely in the headers
+    # Send the API key securely in the headers using 'x-goog-api-key'
     headers = {
         "Content-Type": "application/json",
         "x-goog-api-key": RAW_API_KEY
@@ -156,12 +156,10 @@ if uploaded_file is not None:
                     rules = VALIDATION_RULES.get(domain_key, {})
                     columns_list = list(df.columns)
                     sample_rows = df.head(10).fillna("NaN").to_dict(orient="records")
-                    missing_cols = [col for col in rules.get('required_columns', []) if col not in columns_list]
                     
                     audit_prompt = f"""
                     You are an expert Data Auditor specialized purely in {chosen_domain}.
                     Operational Rules: {json.dumps(rules)}
-                    Missing Columns: {missing_cols}
                     Columns: {columns_list}
                     Samples: {sample_rows}
                     
