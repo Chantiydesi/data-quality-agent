@@ -1,0 +1,13 @@
+﻿dataset_name: user_transactions
+
+rules:
+  - column: user_id
+    assertion: is_not_null
+
+  - column: transaction_amount
+    assertion: is_greater_than_or_equal_to
+    value: 0
+
+  - column: status
+    assertion: is_in_set
+    values: ['pending', 'completed', 'failed']

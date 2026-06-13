@@ -1,0 +1,6 @@
+﻿transaction_id,user_id,transaction_amount,status
+1,USR101,150.00,completed
+2,,45.25,completed
+3,USR102,-20.00,completed
+4,USR103,300.50,pending
+5,USR104,12.00,unknown

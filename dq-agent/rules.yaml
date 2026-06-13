@@ -1,0 +1,14 @@
+﻿healthcare_data:
+  required_columns: ["patient_id", "age", "blood_pressure", "billing_amount"]
+  data_types:
+    age: "int"
+    billing_amount: "float"
+  value_ranges:
+    age: [0, 120]
+
+financial_transactions:
+  required_columns: ["transaction_id", "account_number", "amount", "currency"]
+  data_types:
+    amount: "float"
+  value_ranges:
+    amount: [0, 10000000]

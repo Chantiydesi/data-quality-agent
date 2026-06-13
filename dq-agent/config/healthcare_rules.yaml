@@ -1,0 +1,18 @@
+﻿dataset_name: patient_health_metrics
+
+rules:
+  - column: age
+    assertion: is_greater_than_or_equal_to
+    value: 0
+
+  - column: blood_type
+    assertion: is_in_set
+    values: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+
+  - column: heart_rate_bpm
+    assertion: is_greater_than_or_equal_to
+    value: 0
+
+  - column: heart_rate_bpm
+    assertion: is_less_than_or_equal_to
+    value: 200

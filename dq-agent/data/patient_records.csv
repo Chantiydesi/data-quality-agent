@@ -1,0 +1,5 @@
+﻿patient_id,full_name,age,blood_type,heart_rate_bpm
+P001,John Doe,45,O+,72
+P002,Jane Smith,-12,A-,65
+P003,Bob Johnson,29,XYZ,80
+P004,Alice Brown,34,B+,250
