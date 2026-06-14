@@ -1,10 +1,15 @@
-﻿healthcare_data:
-  required_columns: ["patient_id", "age", "blood_pressure", "billing_amount"]
+# Data Quality Rules Configuration
+healthcare_data:
+  required_columns: ["patient_id", "age", "blood_type", "bpm", "billing_amount"]
   data_types:
     age: "int"
+    bpm: "int"
     billing_amount: "float"
   value_ranges:
     age: [0, 120]
+    bpm: [40, 180] # This prevents values like 250
+  allowed_values:
+    blood_type: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] # This prevents 'XYZ'
 
 financial_transactions:
   required_columns: ["transaction_id", "account_number", "amount", "currency"]
